@@ -614,7 +614,7 @@ def train(
         device=device,
     )
 
-    if leap_model_path is None:
+    if leap_model_path is not None:
         # Loading LEAP from checkpoint
         leap = leap_sd.LM.load_from_checkpoint(leap_model_path)
         leap = leap.to("cpu")
