@@ -67,6 +67,14 @@ Install this repo by
 pip install git+https://github.com/cloneofsimo/promptplusplus
 ```
 
+### Leap Boosting
+
+To use boost
+
+```bash
+wget https://github.com/peterwilli/sd-leap-booster/releases/download/sd-2.1-ti/leap_ti_2.0_sd2.1_beta.ckpt -O models/leap_ti_2.0_sd2.1_beta.ckpt
+```
+
 ### Training
 
 Use `ppp_train` command to train: following example
@@ -83,6 +91,7 @@ ppp_train --pretrained_model_name_or_path=$MODEL_NAME  \
   --use_template="object" \
   --do_coarse_inversion=False \
   --preserve_prefix=False \
+  --leap_model_path="./models/leap_ti_2.0_sd2.1_beta.ckpt"
 ```
 
 ### Inference

@@ -9,6 +9,9 @@ import math
 import os
 import re
 from typing import Optional, List, Literal
+from torchvision import transforms
+import random
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -22,7 +25,9 @@ from diffusers import (
 )
 from diffusers.optimization import get_scheduler
 
-from PIL import Image
+from PIL import Image, ImageOps
+from imgaug import augmenters as iaa
+
 
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
@@ -37,6 +42,7 @@ from lora_diffusion import (
 
 from .dataset import PPPDataset, pp_extend
 from .utils import PPPAttenProc
+from ppp import leap_sd
 
 
 def get_models(
@@ -47,7 +53,6 @@ def get_models(
     initializer_tokens: List[str],
     device="cuda:0",
 ):
-
     tokenizer = CLIPTokenizer.from_pretrained(
         pretrained_model_name_or_path,
         subfolder="tokenizer",
@@ -124,6 +129,46 @@ def get_models(
 
 
 @torch.no_grad()
+def boost_embed(leap, images_folder):
+    def repeat_array_to_length(arr, length):
+        while len(arr) < length:
+            arr = arr * 2
+        return arr[:length]
+
+    def load_images(images_path):
+        image_names = os.listdir(images_path)
+        random.shuffle(image_names)
+        image_names = repeat_array_to_length(image_names, 4)
+        images = None
+        pred_transforms = transforms.Compose(
+            [
+                iaa.Resize(
+                    {"shorter-side": (128, 256), "longer-side": "keep-aspect-ratio"}
+                ).augment_image,
+                iaa.CropToFixedSize(width=128, height=128).augment_image,
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
+        for image_name in image_names:
+            image = Image.open(os.path.join(images_path, image_name)).convert("RGB")
+            image = ImageOps.exif_transpose(image)
+            image = pred_transforms(np.array(image)).unsqueeze(0)
+            if images is None:
+                images = image
+            else:
+                images = torch.cat((images, image), 0)
+        return images
+
+    images = load_images(images_folder)
+    # Simulate single item batch
+    images = images.unsqueeze(0)
+    embed_model = leap(images)
+    embed_model = embed_model.squeeze()
+    return embed_model
+
+
+@torch.no_grad()
 def text2img_dataloader(
     train_dataset,
     train_batch_size,
@@ -132,7 +177,6 @@ def text2img_dataloader(
     text_encoder,
     cached_latents: bool = False,
 ):
-
     if cached_latents:
         cached_latents_dataset = []
         for idx in tqdm(range(len(train_dataset))):
@@ -169,7 +213,6 @@ def text2img_dataloader(
         return batch
 
     if cached_latents:
-
         train_dataloader = torch.utils.data.DataLoader(
             cached_latents_dataset,
             batch_size=train_batch_size,
@@ -266,7 +309,6 @@ def loss_step(
         raise ValueError(f"Unknown prediction type {scheduler.config.prediction_type}")
 
     if batch.get("mask", None) is not None:
-
         mask = (
             batch["mask"]
             .to(model_pred.device)
@@ -324,7 +366,6 @@ def train_inversion(
     clip_ti_decay: bool = True,
     is_coarse_inversion: bool = False,
 ):
-
     progress_bar = tqdm(range(num_steps))
     progress_bar.set_description("Steps")
     global_step = 0
@@ -342,7 +383,6 @@ def train_inversion(
         unet.eval()
         text_encoder.train()
         for batch in dataloader:
-
             lr_scheduler.step()
 
             with torch.set_grad_enabled(True):
@@ -376,7 +416,6 @@ def train_inversion(
                     optimizer.zero_grad()
 
                     with torch.no_grad():
-
                         # normalize embeddings
                         if clip_ti_decay:
                             pre_norm = (
@@ -510,6 +549,7 @@ def train(
     wandb_entity: str = "new_pti_entity",
     proxy_token: str = "person",
     enable_xformers_memory_efficient_attention: bool = False,
+    leap_model_path: str = None,
 ):
     torch.manual_seed(seed)
 
@@ -573,6 +613,21 @@ def train(
         initializer_tokens,
         device=device,
     )
+
+    if leap_model_path is None:
+        # Loading LEAP from checkpoint
+        leap = leap_sd.LM.load_from_checkpoint(leap_model_path)
+        leap = leap.to("cpu")
+        leap.eval()
+
+        boosted_embed = boost_embed(leap, instance_data_dir)
+
+        # Boosting Embeddings in place
+        token_embeds = text_encoder.get_input_embeddings().weight.data
+        for token_id in placeholder_token_ids:
+            token_embeds[token_id] = boosted_embed
+
+        print(f"Successfully boosted embed to {boosted_embed}")
 
     noise_scheduler = DDPMScheduler.from_config(
         pretrained_model_name_or_path, subfolder="scheduler"
@@ -653,7 +708,6 @@ def train(
 
     # STEP 1 : Perform Course Inversion
     if do_coarse_inversion:
-
         train_dataset.is_extended = False
 
         train_inversion(

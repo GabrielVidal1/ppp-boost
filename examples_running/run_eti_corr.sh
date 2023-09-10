@@ -1,5 +1,5 @@
 export MODEL_NAME="runwayml/stable-diffusion-v1-5"
-export INSTANCE_DIR="./dataset/data_yc"
+export INSTANCE_DIR="./dataset/backpack_dog"
 export OUTPUT_DIR="./exps/yc_coarse_inversion"
 
 ppp_train --pretrained_model_name_or_path=$MODEL_NAME  \
@@ -11,3 +11,4 @@ ppp_train --pretrained_model_name_or_path=$MODEL_NAME  \
   --preserve_prefix=True \
   --max_train_steps_ti=300 \
   --lr_scheduler="constant" \
+  --leap_model_path="./models/leap_ti_2.0_sd2.1_beta.ckpt"
