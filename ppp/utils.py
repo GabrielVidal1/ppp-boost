@@ -45,7 +45,7 @@ class PPPAttenProc:
 
         if _ehs is None:
             _ehs = hidden_states
-        elif attn.cross_attention_norm:
+        elif attn.norm_cross:
             _ehs = attn.norm_cross(_ehs)
 
         key = attn.to_k(_ehs)
