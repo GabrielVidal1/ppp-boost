@@ -1,4 +1,4 @@
-export MODEL_NAME="runwayml/stable-diffusion-v1-5"
+export MODEL_NAME="stabilityai/stable-diffusion-2-1"
 export INSTANCE_DIR="./dataset/backpack_dog"
 export OUTPUT_DIR="./exps/yc_coarse_inversion"
 
